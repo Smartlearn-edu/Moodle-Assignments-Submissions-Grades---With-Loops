@@ -1,5 +1,5 @@
 {
-  "name": "Moodle Assignments Submissions Grades - With Loops",
+  "name": "parse  Submissions from couurse",
   "nodes": [
     {
       "parameters": {
@@ -118,19 +118,19 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 1,
       "position": [
-        448,
-        -400
+        432,
+        -384
       ]
     },
     {
       "parameters": {
-        "jsCode": "// Get assignment data from the loop\nconst assignmentData = $('Loop Assignments').item.json;\nconst submissionsData = items[0].json;\n\n// Debug: Log the structure to see what we're getting\nconsole.log('Submissions Data:', JSON.stringify(submissionsData, null, 2));\n\n// Try different possible structures\nlet submissions = [];\n\nif (submissionsData.assignments && Array.isArray(submissionsData.assignments)) {\n  // Structure: {assignments: [{submissions: [...]}]}\n  submissions = submissionsData.assignments[0]?.submissions || [];\n} else if (Array.isArray(submissionsData)) {\n  // Structure: [{submissions: [...]}]\n  submissions = submissionsData[0]?.submissions || [];\n} else if (submissionsData.submissions) {\n  // Structure: {submissions: [...]}\n  submissions = submissionsData.submissions;\n}\n\nconsole.log('Extracted submissions:', submissions.length);\n\n// Prepare output array with all submissions (graded or not)\nconst results = [];\n\nfor (const sub of submissions) {\n  // Get text from plugins\n  const textPlugin = sub.plugins?.find(p => p.type === 'onlinetext');\n  const text = textPlugin?.editorfields?.[0]?.text || '';\n  \n  // Include all submissions with text, filter by status\n  if (text.trim() !== '' && sub.status === 'submitted') {\n    results.push({\n      assignmentId: assignmentData.id,\n      assignmentName: assignmentData.name,\n      maxGrade: assignmentData.maxgrade,\n      instructions: assignmentData.instructions,\n      submissionId: sub.id,\n      userId: sub.userid,\n      submissionText: text,\n      timeModified: sub.timemodified,\n      status: sub.status,\n      gradingStatus: sub.gradingstatus\n    });\n  }\n}\n\nconsole.log('Results found:', results.length);\n\n// If no submissions found, return a placeholder to continue loop\nif (results.length === 0) {\n  return [{ json: { \n    message: 'No submissions found',\n    assignmentId: assignmentData.id,\n    assignmentName: assignmentData.name \n  }}];\n}\n\n// Return each submission as separate item\nreturn results.map(r => ({ json: r }));"
+        "jsCode": "// Get assignment data from the loop\nconst assignmentData = $('Loop Assignments').item.json;\nconst submissionsData = items[0].json;\n\n// Debug: Log the structure to see what we're getting\nconsole.log('Submissions Data:', JSON.stringify(submissionsData, null, 2));\n\n// Try different possible structures\nlet submissions = [];\n\nif (submissionsData.assignments && Array.isArray(submissionsData.assignments)) {\n  // Structure: {assignments: [{submissions: [...]}]}\n  submissions = submissionsData.assignments[0]?.submissions || [];\n} else if (Array.isArray(submissionsData)) {\n  // Structure: [{submissions: [...]}]\n  submissions = submissionsData[0]?.submissions || [];\n} else if (submissionsData.submissions) {\n  // Structure: {submissions: [...]}\n  submissions = submissionsData.submissions;\n}\n\nconsole.log('Extracted submissions:', submissions.length);\n\n// Prepare output array with all submissions (graded or not)\nconst results = [];\n\nfor (const sub of submissions) {\n  // Only process submitted items that are not graded\n  if (sub.status === 'submitted') {\n    \n    // Get text from plugins\n    const textPlugin = sub.plugins?.find(p => p.type === 'onlinetext');\n    const text = textPlugin?.editorfields?.[0]?.text || '';\n    \n    // Get file from plugins\n    const filePlugin = sub.plugins?.find(p => p.type === 'file');\n    const files = filePlugin?.fileareas?.[0]?.files || [];\n    \n    // Check if there's either text or files\n    const hasText = text.trim() !== '';\n    const hasFiles = files.length > 0;\n    \n    if (hasText || hasFiles) {\n      results.push({\n        assignmentId: assignmentData.id,\n        assignmentName: assignmentData.name,\n        maxGrade: assignmentData.maxgrade,\n        instructions: assignmentData.instructions,\n        submissionId: sub.id,\n        userId: sub.userid,\n        submissionText: text,\n        submissionFiles: files,\n        hasText: hasText,\n        hasFiles: hasFiles,\n        timeModified: sub.timemodified,\n        status: sub.status,\n        gradingStatus: sub.gradingstatus\n      });\n    }\n  }\n}\n\nconsole.log('Results found:', results.length);\n\n// If no submissions found, return a placeholder to continue loop\nif (results.length === 0) {\n  return [{ json: { \n    message: 'No submissions found',\n    assignmentId: assignmentData.id,\n    assignmentName: assignmentData.name \n  }}];\n}\n\n// Return each submission as separate item\nreturn results.map(r => ({ json: r }));"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        640,
-        -400
+        656,
+        -384
       ],
       "id": "514fb122-0729-482e-9de6-d636524ba17e",
       "name": "Parse Submissions"
@@ -245,8 +245,9 @@
             "userId": "={{ $json.userId }}",
             "status": "={{ $json.status }}",
             "gradingStatus": "={{ $json.gradingStatus }}",
-            "submissionText": "={{ $json.submissionText }}",
-            "assignmentId": "={{ $json.assignmentId }}"
+            "assignmentId": "={{ $json.assignmentId }}",
+            "submissionFiles": "={{ $json.submissionFiles }}",
+            "files": "={{ $json.submissionFiles }}"
           },
           "matchingColumns": [
             "assignmentId"
@@ -304,7 +305,18 @@
               "defaultMatch": false,
               "display": true,
               "type": "string",
-              "canBeUsedToMatch": true
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "files",
+              "displayName": "files",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
             },
             {
               "id": "gradingStatus",
@@ -326,14 +338,14 @@
               "removed": false
             },
             {
-              "id": "timeModified",
-              "displayName": "timeModified",
+              "id": "submissionFiles",
+              "displayName": "submissionFiles",
               "required": false,
               "defaultMatch": false,
               "display": true,
               "type": "string",
               "canBeUsedToMatch": true,
-              "removed": true
+              "removed": false
             },
             {
               "id": "status",
@@ -354,8 +366,8 @@
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.7,
       "position": [
-        928,
-        -144
+        976,
+        -128
       ],
       "id": "9f062015-c57a-4ec3-b1ff-a70bd419cf49",
       "name": "Append or update row in sheet1",
@@ -378,7 +390,7 @@
       "typeVersion": 3,
       "position": [
         128,
-        -176
+        -192
       ],
       "id": "cb4a455e-152d-46a0-99ea-99c633918935",
       "name": "AI Agent"
@@ -421,11 +433,45 @@
         },
         "columns": {
           "mappingMode": "defineBelow",
-          "value": {},
+          "value": {
+            "grade": "={{ $json.grade }}",
+            "feedbback": "={{ $json.feedback }}"
+          },
           "matchingColumns": [
-            "output"
+            "grade"
           ],
-          "schema": [],
+          "schema": [
+            {
+              "id": "grade",
+              "displayName": "grade",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "feedbback",
+              "displayName": "feedbback",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "rawOutput",
+              "displayName": "rawOutput",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            }
+          ],
           "attemptToConvertTypes": false,
           "convertFieldsToString": false
         },
@@ -434,8 +480,8 @@
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.7,
       "position": [
-        672,
-        -160
+        656,
+        -192
       ],
       "id": "3d324cea-6c2a-4f27-9587-e86c9b98124b",
       "name": "Append or update row in sheet2",
@@ -448,13 +494,13 @@
     },
     {
       "parameters": {
-        "jsCode": "// Loop over input items and add a new field called 'myNewField' to the JSON of each one\nfor (const item of $input.all()) {\n  item.json.myNewField = 1;\n}\n\nreturn $input.all();"
+        "jsCode": "// Get the AI output (it's text containing JSON)\nconst aiOutput = items[0].json.output || '';\n\n// Get the submission data - try to get it from the AI Agent input\nconst submission = items[0].json;\n\nlet grade = null;\nlet feedback = '';\n\ntry {\n  // Clean and parse the JSON text\n  let cleanOutput = aiOutput.trim();\n  cleanOutput = cleanOutput.replace(/```json\\n?/g, '');\n  cleanOutput = cleanOutput.replace(/```\\n?/g, '');\n  cleanOutput = cleanOutput.trim();\n  \n  // Parse it\n  const parsed = JSON.parse(cleanOutput);\n  grade = parsed.grade;\n  feedback = parsed.feedback;\n  \n} catch (error) {\n  console.error('Failed to parse:', error);\n  \n  // Fallback: extract manually\n  const gradeMatch = aiOutput.match(/[\"']grade[\"']\\s*:\\s*(\\d+\\.?\\d*)/i);\n  const feedbackMatch = aiOutput.match(/[\"']feedback[\"']\\s*:\\s*[\"']([^\"']+)[\"']/is);\n  \n  if (gradeMatch) grade = parseFloat(gradeMatch[1]);\n  if (feedbackMatch) feedback = feedbackMatch[1];\n}\n\n// Return structured data\nreturn [{\n  json: {\n    assignmentId: submission.assignmentId,\n    assignmentName: submission.assignmentName,\n    submissionId: submission.submissionId,\n    userId: submission.userId,\n    grade: grade,\n    feedback: feedback,\n    maxGrade: submission.maxGrade,\n    rawOutput: aiOutput  // For debugging\n  }\n}];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        480,
-        -160
+        464,
+        -192
       ],
       "id": "3470111c-d477-4a27-9b50-43aa4d8bbb48",
       "name": "Code in JavaScript"
@@ -530,11 +576,6 @@
             "node": "Append or update row in sheet1",
             "type": "main",
             "index": 0
-          },
-          {
-            "node": "AI Agent",
-            "type": "main",
-            "index": 0
           }
         ]
       ]
@@ -582,13 +623,18 @@
           }
         ]
       ]
+    },
+    "Append or update row in sheet2": {
+      "main": [
+        []
+      ]
     }
   },
   "active": false,
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "43b9ca86-b4f2-4140-800d-af86686aad29",
+  "versionId": "cba6bed1-3587-4919-ab60-d27dccfea3f0",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "0b253211a774e1082a8da3af3f8503fe5f5b71a128946778f1d9f44b46cdd105"
