@@ -354,8 +354,8 @@
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.7,
       "position": [
-        560,
-        -176
+        928,
+        -144
       ],
       "id": "9f062015-c57a-4ec3-b1ff-a70bd419cf49",
       "name": "Append or update row in sheet1",
@@ -365,6 +365,99 @@
           "name": "Google Sheets account"
         }
       }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=instructions:{{ $json.instructions }}\nsubmissionText :{{ $json.submissionText }}\nmaxGrade:{{ $json.maxGrade }}",
+        "options": {
+          "systemMessage": "You are a teacher grading student assignments.\n\nAssignment Question: {{ $json.instructions }}\nMax Grade: {{ $json.maxGrade }}\nStudent Submission: {{ $json.submissionText }}\n\nEvaluate the student's answer and provide:\n1. A numerical grade (0 to {{ $json.maxGrade }})\n2. Constructive feedback explaining the grade\n\nIMPORTANT: Respond with ONLY valid JSON, no markdown formatting, no code fences, no backticks. Just pure JSON in this exact format:\n{\"grade\": NUMBER, \"feedback\": \"TEXT\"}\n\nDo not include ```json or ``` or any other formatting. Just the raw JSON object."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        128,
+        -176
+      ],
+      "id": "cb4a455e-152d-46a0-99ea-99c633918935",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        144,
+        -48
+      ],
+      "id": "bf729029-f752-4e7d-bbd0-8eb15b9bf4ca",
+      "name": "Google Gemini Chat Model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "hqB9Pwt4QnucEtMt",
+          "name": "Google Gemini(PaLM) Api account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "1clTT8CgvVPtVj7dnG-HZ1-rXI1XGselFBVRzYxbKbr0",
+          "mode": "list",
+          "cachedResultName": "graded assignmrnts",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1clTT8CgvVPtVj7dnG-HZ1-rXI1XGselFBVRzYxbKbr0/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1clTT8CgvVPtVj7dnG-HZ1-rXI1XGselFBVRzYxbKbr0/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [
+            "output"
+          ],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        672,
+        -160
+      ],
+      "id": "3d324cea-6c2a-4f27-9587-e86c9b98124b",
+      "name": "Append or update row in sheet2",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "Ll71p2dsiT3JLP8R",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Loop over input items and add a new field called 'myNewField' to the JSON of each one\nfor (const item of $input.all()) {\n  item.json.myNewField = 1;\n}\n\nreturn $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        -160
+      ],
+      "id": "3470111c-d477-4a27-9b50-43aa4d8bbb48",
+      "name": "Code in JavaScript"
     }
   ],
   "pinData": {},
@@ -437,6 +530,11 @@
             "node": "Append or update row in sheet1",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -451,13 +549,46 @@
           }
         ]
       ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Append or update row in sheet2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": false,
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "b97f9e5d-33c5-4981-a6e5-62eb9bb3c36b",
+  "versionId": "43b9ca86-b4f2-4140-800d-af86686aad29",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "0b253211a774e1082a8da3af3f8503fe5f5b71a128946778f1d9f44b46cdd105"
