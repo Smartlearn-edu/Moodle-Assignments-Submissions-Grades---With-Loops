@@ -1,0 +1,467 @@
+{
+  "name": "Moodle Assignments Submissions Grades - With Loops",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "Get Grades",
+        "formDescription": "Get Grades From course",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Course Id",
+              "fieldType": "number",
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.3,
+      "position": [
+        -528,
+        -400
+      ],
+      "id": "31d37f8b-047e-4702-a32a-6db28f408f13",
+      "name": "select course",
+      "webhookId": "35c7f804-37e1-4576-868c-77bcb6025ac6"
+    },
+    {
+      "parameters": {
+        "url": "https://lms.mohammadnabil.site/webservice/rest/server.php",
+        "options": {},
+        "queryParametersUi": {
+          "parameter": [
+            {
+              "name": "wstoken",
+              "value": "c0a31a9e7a14ca0222e53af59601dd13"
+            },
+            {
+              "name": "moodlewsrestformat",
+              "value": "json"
+            },
+            {
+              "name": "wsfunction",
+              "value": "mod_assign_get_assignments"
+            },
+            {
+              "name": "courseids[0]",
+              "value": "={{ $json['Course Id'] }}"
+            }
+          ]
+        }
+      },
+      "id": "eaa78245-2420-4b75-8abc-6cb94decfcbf",
+      "name": "Get asnmt",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        -352,
+        -400
+      ],
+      "notes": "Get all assignments in a course"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get input data from previous node\nconst data = items[0].json;\n\n// Debug: Log the structure\nconsole.log('Assignment Data Structure:', JSON.stringify(data, null, 2));\n\n// Prepare output array\nconst results = [];\n\n// Traverse through courses → assignments\nif (data.courses && Array.isArray(data.courses)) {\n  for (const course of data.courses) {\n    if (course.assignments && Array.isArray(course.assignments)) {\n      for (const assignment of course.assignments) {\n        results.push({\n          id: assignment.id,\n          name: assignment.name,\n          maxgrade: assignment.grade || null,\n          instructions: assignment.activity || \"\"\n        });\n      }\n    }\n  }\n}\n\nconsole.log('Total assignments found:', results.length);\n\n// If no assignments found, return error message\nif (results.length === 0) {\n  return [{ json: { error: 'No assignments found in course', rawData: data } }];\n}\n\n// Return as separate output items for n8n (one per assignment)\nreturn results.map(r => ({ json: r }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -160,
+        -400
+      ],
+      "id": "bc52e205-aaa4-440b-816d-218802654c9b",
+      "name": "Parse Assignments"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        64,
+        -400
+      ],
+      "id": "e747ca80-2e80-4068-a7b4-d705bedf9182",
+      "name": "Loop Assignments",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "url": "https://lms.mohammadnabil.site/webservice/rest/server.php",
+        "options": {},
+        "queryParametersUi": {
+          "parameter": [
+            {
+              "name": "wstoken",
+              "value": "c0a31a9e7a14ca0222e53af59601dd13"
+            },
+            {
+              "name": "moodlewsrestformat",
+              "value": "json"
+            },
+            {
+              "name": "wsfunction",
+              "value": "mod_assign_get_submissions"
+            },
+            {
+              "name": "assignmentids[0]",
+              "value": "={{ $json.id }}"
+            }
+          ]
+        }
+      },
+      "id": "795075a2-6ebd-432f-b7ed-bfe03ee53b0b",
+      "name": "Get Submissions",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        448,
+        -400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get assignment data from the loop\nconst assignmentData = $('Loop Assignments').item.json;\nconst submissionsData = items[0].json;\n\n// Debug: Log the structure to see what we're getting\nconsole.log('Submissions Data:', JSON.stringify(submissionsData, null, 2));\n\n// Try different possible structures\nlet submissions = [];\n\nif (submissionsData.assignments && Array.isArray(submissionsData.assignments)) {\n  // Structure: {assignments: [{submissions: [...]}]}\n  submissions = submissionsData.assignments[0]?.submissions || [];\n} else if (Array.isArray(submissionsData)) {\n  // Structure: [{submissions: [...]}]\n  submissions = submissionsData[0]?.submissions || [];\n} else if (submissionsData.submissions) {\n  // Structure: {submissions: [...]}\n  submissions = submissionsData.submissions;\n}\n\nconsole.log('Extracted submissions:', submissions.length);\n\n// Prepare output array with all submissions (graded or not)\nconst results = [];\n\nfor (const sub of submissions) {\n  // Get text from plugins\n  const textPlugin = sub.plugins?.find(p => p.type === 'onlinetext');\n  const text = textPlugin?.editorfields?.[0]?.text || '';\n  \n  // Include all submissions with text, filter by status\n  if (text.trim() !== '' && sub.status === 'submitted') {\n    results.push({\n      assignmentId: assignmentData.id,\n      assignmentName: assignmentData.name,\n      maxGrade: assignmentData.maxgrade,\n      instructions: assignmentData.instructions,\n      submissionId: sub.id,\n      userId: sub.userid,\n      submissionText: text,\n      timeModified: sub.timemodified,\n      status: sub.status,\n      gradingStatus: sub.gradingstatus\n    });\n  }\n}\n\nconsole.log('Results found:', results.length);\n\n// If no submissions found, return a placeholder to continue loop\nif (results.length === 0) {\n  return [{ json: { \n    message: 'No submissions found',\n    assignmentId: assignmentData.id,\n    assignmentName: assignmentData.name \n  }}];\n}\n\n// Return each submission as separate item\nreturn results.map(r => ({ json: r }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        640,
+        -400
+      ],
+      "id": "514fb122-0729-482e-9de6-d636524ba17e",
+      "name": "Parse Submissions"
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "10jT7Xbxcq_LyUdztE9F40v8BvMRz4v6wHY0T8f4n0z0",
+          "mode": "list",
+          "cachedResultName": "all course assignments",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/10jT7Xbxcq_LyUdztE9F40v8BvMRz4v6wHY0T8f4n0z0/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/10jT7Xbxcq_LyUdztE9F40v8BvMRz4v6wHY0T8f4n0z0/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "maxgrade",
+              "displayName": "maxgrade",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "instructions",
+              "displayName": "instructions",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -448,
+        -176
+      ],
+      "id": "7f1133b1-a31c-42d7-bdc1-032e1bef1972",
+      "name": "Append or update row in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "Ll71p2dsiT3JLP8R",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "1P15oYreeYZrH9rkr-8OOMIMMGmHPrML0gn0kXg9281o",
+          "mode": "list",
+          "cachedResultName": "python assignments",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1P15oYreeYZrH9rkr-8OOMIMMGmHPrML0gn0kXg9281o/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1P15oYreeYZrH9rkr-8OOMIMMGmHPrML0gn0kXg9281o/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "assignmentName": "={{ $json.assignmentName }}",
+            "maxGrade": "={{ $json.maxGrade }}",
+            "instructions": "={{ $json.instructions }}",
+            "submissionId": "={{ $json.submissionId }}",
+            "userId": "={{ $json.userId }}",
+            "status": "={{ $json.status }}",
+            "gradingStatus": "={{ $json.gradingStatus }}",
+            "submissionText": "={{ $json.submissionText }}",
+            "assignmentId": "={{ $json.assignmentId }}"
+          },
+          "matchingColumns": [
+            "assignmentId"
+          ],
+          "schema": [
+            {
+              "id": "assignmentName",
+              "displayName": "assignmentName",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "maxGrade",
+              "displayName": "maxGrade",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "instructions",
+              "displayName": "instructions",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "submissionId",
+              "displayName": "submissionId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "userId",
+              "displayName": "userId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "submissionText",
+              "displayName": "submissionText",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "gradingStatus",
+              "displayName": "gradingStatus",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "assignmentId",
+              "displayName": "assignmentId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "timeModified",
+              "displayName": "timeModified",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        560,
+        -176
+      ],
+      "id": "9f062015-c57a-4ec3-b1ff-a70bd419cf49",
+      "name": "Append or update row in sheet1",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "Ll71p2dsiT3JLP8R",
+          "name": "Google Sheets account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "select course": {
+      "main": [
+        [
+          {
+            "node": "Get asnmt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get asnmt": {
+      "main": [
+        [
+          {
+            "node": "Parse Assignments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Assignments": {
+      "main": [
+        [
+          {
+            "node": "Loop Assignments",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Append or update row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Assignments": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Get Submissions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Submissions": {
+      "main": [
+        [
+          {
+            "node": "Parse Submissions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Submissions": {
+      "main": [
+        [
+          {
+            "node": "Append or update row in sheet1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append or update row in sheet1": {
+      "main": [
+        [
+          {
+            "node": "Loop Assignments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "b97f9e5d-33c5-4981-a6e5-62eb9bb3c36b",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "0b253211a774e1082a8da3af3f8503fe5f5b71a128946778f1d9f44b46cdd105"
+  },
+  "id": "snki0Wnu5ARMW270",
+  "tags": []
+}
