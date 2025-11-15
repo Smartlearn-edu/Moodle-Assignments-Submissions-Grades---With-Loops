@@ -1,0 +1,691 @@
+{
+  "name": "parse  Submissions from couurse rubric",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "Get Grades",
+        "formDescription": "Get Grades From course",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Course Id",
+              "fieldType": "number",
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.3,
+      "position": [
+        -528,
+        -400
+      ],
+      "id": "88b175d8-3a05-434a-9cd5-b6d84094e76a",
+      "name": "select course",
+      "webhookId": "d4b1ce14-8fc8-4289-b9fd-99ed1f7bd0da"
+    },
+    {
+      "parameters": {
+        "url": "https://lms.mohammadnabil.site/webservice/rest/server.php",
+        "options": {},
+        "queryParametersUi": {
+          "parameter": [
+            {
+              "name": "wstoken",
+              "value": "c0a31a9e7a14ca0222e53af59601dd13"
+            },
+            {
+              "name": "moodlewsrestformat",
+              "value": "json"
+            },
+            {
+              "name": "wsfunction",
+              "value": "mod_assign_get_assignments"
+            },
+            {
+              "name": "courseids[0]",
+              "value": "={{ $json['Course Id'] }}"
+            }
+          ]
+        }
+      },
+      "id": "6c746d1d-375f-4be0-8a1d-a97d10e038e6",
+      "name": "Get asnmt",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        -352,
+        -400
+      ],
+      "notes": "Get all assignments in a course"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get input data from previous node\nconst data = items[0].json;\n\n// Debug: Log the structure\nconsole.log('Assignment Data Structure:', JSON.stringify(data, null, 2));\n\n// Prepare output array\nconst results = [];\n\n// Traverse through courses → assignments\nif (data.courses && Array.isArray(data.courses)) {\n  for (const course of data.courses) {\n    if (course.assignments && Array.isArray(course.assignments)) {\n      for (const assignment of course.assignments) {\n        results.push({\n          id: assignment.id,\n          name: assignment.name,\n          maxgrade: assignment.grade || null,\n          instructions: assignment.activity || \"\"\n        });\n      }\n    }\n  }\n}\n\nconsole.log('Total assignments found:', results.length);\n\n// If no assignments found, return error message\nif (results.length === 0) {\n  return [{ json: { error: 'No assignments found in course', rawData: data } }];\n}\n\n// Return as separate output items for n8n (one per assignment)\nreturn results.map(r => ({ json: r }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -160,
+        -400
+      ],
+      "id": "d1c18fb6-bbfe-4f98-b40b-f44116be69d8",
+      "name": "Parse Assignments"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        64,
+        -400
+      ],
+      "id": "01acfb48-6311-4300-8313-07cc70cec337",
+      "name": "Loop Assignments",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "url": "https://lms.mohammadnabil.site/webservice/rest/server.php",
+        "options": {},
+        "queryParametersUi": {
+          "parameter": [
+            {
+              "name": "wstoken",
+              "value": "c0a31a9e7a14ca0222e53af59601dd13"
+            },
+            {
+              "name": "moodlewsrestformat",
+              "value": "json"
+            },
+            {
+              "name": "wsfunction",
+              "value": "mod_assign_get_submissions"
+            },
+            {
+              "name": "assignmentids[0]",
+              "value": "={{ $json.id }}"
+            }
+          ]
+        }
+      },
+      "id": "97b83ffd-e8ab-47af-b1c3-3539f6746f39",
+      "name": "Get Submissions",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        432,
+        -384
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get assignment data from the loop\nconst assignmentData = $('Loop Assignments').item.json;\nconst submissionsData = items[0].json;\n\n// Debug: Log the structure to see what we're getting\nconsole.log('Submissions Data:', JSON.stringify(submissionsData, null, 2));\n\n// Try different possible structures\nlet submissions = [];\nif (submissionsData.assignments && Array.isArray(submissionsData.assignments)) {\n  // Structure: {assignments: [{submissions: [...]}]}\n  submissions = submissionsData.assignments[0]?.submissions || [];\n} else if (Array.isArray(submissionsData)) {\n  // Structure: [{submissions: [...]}]\n  submissions = submissionsData[0]?.submissions || [];\n} else if (submissionsData.submissions) {\n  // Structure: {submissions: [...]}\n  submissions = submissionsData.submissions;\n}\n\nconsole.log('Extracted submissions:', submissions.length);\n\n// Get rubric from assignment data (with fallback to default)\nconst criterion1Name = assignmentData.criterion1Name || 'definition';\nconst criterion1Levels = assignmentData.criterion1Levels || JSON.stringify({\n  'wrong': 5,\n  'poor definition': 20,\n  'good definition': 50\n});\n\nconst criterion2Name = assignmentData.criterion2Name || 'used for';\nconst criterion2Levels = assignmentData.criterion2Levels || JSON.stringify({\n  'wrong usage': 5,\n  'Partially right': 20,\n  'right': 50\n});\n\n// Prepare output array with all submissions (graded or not)\nconst results = [];\n\nfor (const sub of submissions) {\n  // Only process submitted items that are not graded\n  if (sub.status === 'submitted') {\n    \n    // Get text from plugins\n    const textPlugin = sub.plugins?.find(p => p.type === 'onlinetext');\n    const text = textPlugin?.editorfields?.[0]?.text || '';\n    \n    // Get file from plugins\n    const filePlugin = sub.plugins?.find(p => p.type === 'file');\n    const files = filePlugin?.fileareas?.[0]?.files || [];\n    \n    // Check if there's either text or files\n    const hasText = text.trim() !== '';\n    const hasFiles = files.length > 0;\n    \n    if (hasText || hasFiles) {\n      results.push({\n        assignmentId: assignmentData.id,\n        assignmentName: assignmentData.name,\n        maxGrade: assignmentData.maxgrade,\n        instructions: assignmentData.instructions,\n        submissionId: sub.id,\n        userId: sub.userid,\n        submissionText: text,\n        submissionFiles: JSON.stringify(files),\n        hasText: hasText,\n        hasFiles: hasFiles,\n        timeModified: sub.timemodified,\n        status: sub.status,\n        gradingStatus: sub.gradingstatus,\n        \n        // Add rubric criteria dynamically from assignment data\n        criterion1Name: criterion1Name,\n        criterion1Levels: criterion1Levels,\n        criterion2Name: criterion2Name,\n        criterion2Levels: criterion2Levels\n      });\n    }\n  }\n}\n\nconsole.log('Results found:', results.length);\n\n// If no submissions found, return a placeholder to continue loop\nif (results.length === 0) {\n  return [{ json: { \n    message: 'No submissions found',\n    assignmentId: assignmentData.id,\n    assignmentName: assignmentData.name \n  }}];\n}\n\n// Return each submission as separate item\nreturn results.map(r => ({ json: r }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        656,
+        -384
+      ],
+      "id": "5fb70fe4-464c-4d38-96cd-17d16cc5c6af",
+      "name": "Parse Submissions"
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "10jT7Xbxcq_LyUdztE9F40v8BvMRz4v6wHY0T8f4n0z0",
+          "mode": "list",
+          "cachedResultName": "all course assignments",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/10jT7Xbxcq_LyUdztE9F40v8BvMRz4v6wHY0T8f4n0z0/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/10jT7Xbxcq_LyUdztE9F40v8BvMRz4v6wHY0T8f4n0z0/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "maxgrade",
+              "displayName": "maxgrade",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "instructions",
+              "displayName": "instructions",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -448,
+        -176
+      ],
+      "id": "191fa269-84d0-4a6d-bfb1-a70a88a9dfe8",
+      "name": "Append or update row in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "Ll71p2dsiT3JLP8R",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "1_7uEMoKHqBgDyXzRIrVu5O0Oq1GikQVhQ0s39rLMWnk",
+          "mode": "list",
+          "cachedResultName": "C++ assignments",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1_7uEMoKHqBgDyXzRIrVu5O0Oq1GikQVhQ0s39rLMWnk/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1P15oYreeYZrH9rkr-8OOMIMMGmHPrML0gn0kXg9281o/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "assignmentName": "={{ $json.assignmentName }}",
+            "maxGrade": "={{ $json.maxGrade }}",
+            "instructions": "={{ $json.instructions }}",
+            "submissionId": "={{ $json.submissionId }}",
+            "userId": "={{ $json.userId }}",
+            "status": "={{ $json.status }}",
+            "gradingStatus": "={{ $json.gradingStatus }}",
+            "assignmentId": "={{ $json.assignmentId }}",
+            "submissionFiles": "={{ $json.submissionFiles }}",
+            "files": "={{ $json.submissionFiles }}",
+            "submissionText": "={{ $json.submissionText }}",
+            "criterion1Name": "={{ $json.criterion1Name }}",
+            "criterion1Levels": "={{ $json.criterion1Levels }}",
+            "criterion2Name": "={{ $json.criterion2Name }}",
+            "criterion2Levels": "={{ $json.criterion2Levels }}"
+          },
+          "matchingColumns": [
+            "assignmentId"
+          ],
+          "schema": [
+            {
+              "id": "assignmentName",
+              "displayName": "assignmentName",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "maxGrade",
+              "displayName": "maxGrade",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "instructions",
+              "displayName": "instructions",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "submissionId",
+              "displayName": "submissionId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "userId",
+              "displayName": "userId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "submissionText",
+              "displayName": "submissionText",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "files",
+              "displayName": "files",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "gradingStatus",
+              "displayName": "gradingStatus",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "assignmentId",
+              "displayName": "assignmentId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "submissionFiles",
+              "displayName": "submissionFiles",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "criterion1Name",
+              "displayName": "criterion1Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "criterion1Levels",
+              "displayName": "criterion1Levels",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "criterion2Name",
+              "displayName": "criterion2Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "criterion2Levels",
+              "displayName": "criterion2Levels",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        976,
+        -128
+      ],
+      "id": "7d7c5d46-c9e9-4513-9510-21348939a459",
+      "name": "Append or update row in sheet1",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "Ll71p2dsiT3JLP8R",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=instructions:{{ $json.instructions }}\nsubmissionText :{{ $json.submissionText }}\nmaxGrade:{{ $json.maxGrade }}",
+        "options": {
+          "systemMessage": "You are a teacher grading student assignments.\n\nAssignment Question: {{ $json.instructions }}\nMax Grade: {{ $json.maxGrade }}\nStudent Submission: {{ $json.submissionText }}\n\nEvaluate the student's answer and provide:\n1. A numerical grade (0 to {{ $json.maxGrade }})\n2. Constructive feedback explaining the grade\n\nIMPORTANT: Respond with ONLY valid JSON, no markdown formatting, no code fences, no backticks. Just pure JSON in this exact format:\n{\"grade\": NUMBER, \"feedback\": \"TEXT\"}\n\nDo not include ```json or ``` or any other formatting. Just the raw JSON object."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        144,
+        -208
+      ],
+      "id": "b8959fd3-6dda-464b-bdbd-9497189d14ea",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        144,
+        -48
+      ],
+      "id": "15ff1724-b39b-4e40-87af-1e1e67a8eb97",
+      "name": "Google Gemini Chat Model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "hqB9Pwt4QnucEtMt",
+          "name": "Google Gemini(PaLM) Api account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "1clTT8CgvVPtVj7dnG-HZ1-rXI1XGselFBVRzYxbKbr0",
+          "mode": "list",
+          "cachedResultName": "graded assignmrnts",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1clTT8CgvVPtVj7dnG-HZ1-rXI1XGselFBVRzYxbKbr0/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1clTT8CgvVPtVj7dnG-HZ1-rXI1XGselFBVRzYxbKbr0/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "grade": "={{ $json.grade }}",
+            "feedbback": "={{ $json.feedback }}"
+          },
+          "matchingColumns": [
+            "grade"
+          ],
+          "schema": [
+            {
+              "id": "grade",
+              "displayName": "grade",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "feedbback",
+              "displayName": "feedbback",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "rawOutput",
+              "displayName": "rawOutput",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        656,
+        -192
+      ],
+      "id": "15c4e6ab-00c4-4a24-9451-08586d0d03ff",
+      "name": "Append or update row in sheet2",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "Ll71p2dsiT3JLP8R",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get the AI output (it's text containing JSON)\nconst aiOutput = items[0].json.output || '';\n\n// Get the submission data - try to get it from the AI Agent input\nconst submission = items[0].json;\n\nlet grade = null;\nlet feedback = '';\n\ntry {\n  // Clean and parse the JSON text\n  let cleanOutput = aiOutput.trim();\n  cleanOutput = cleanOutput.replace(/```json\\n?/g, '');\n  cleanOutput = cleanOutput.replace(/```\\n?/g, '');\n  cleanOutput = cleanOutput.trim();\n  \n  // Parse it\n  const parsed = JSON.parse(cleanOutput);\n  grade = parsed.grade;\n  feedback = parsed.feedback;\n  \n} catch (error) {\n  console.error('Failed to parse:', error);\n  \n  // Fallback: extract manually\n  const gradeMatch = aiOutput.match(/[\"']grade[\"']\\s*:\\s*(\\d+\\.?\\d*)/i);\n  const feedbackMatch = aiOutput.match(/[\"']feedback[\"']\\s*:\\s*[\"']([^\"']+)[\"']/is);\n  \n  if (gradeMatch) grade = parseFloat(gradeMatch[1]);\n  if (feedbackMatch) feedback = feedbackMatch[1];\n}\n\n// Return structured data\nreturn [{\n  json: {\n    assignmentId: submission.assignmentId,\n    assignmentName: submission.assignmentName,\n    submissionId: submission.submissionId,\n    userId: submission.userId,\n    grade: grade,\n    feedback: feedback,\n    maxGrade: submission.maxGrade,\n    rawOutput: aiOutput  // For debugging\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        464,
+        -192
+      ],
+      "id": "cb4ee815-f6d3-43a0-b538-1c62cc00f0c5",
+      "name": "Code in JavaScript"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "select course": {
+      "main": [
+        [
+          {
+            "node": "Get asnmt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get asnmt": {
+      "main": [
+        [
+          {
+            "node": "Parse Assignments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Assignments": {
+      "main": [
+        [
+          {
+            "node": "Loop Assignments",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Append or update row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Assignments": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Get Submissions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Submissions": {
+      "main": [
+        [
+          {
+            "node": "Parse Submissions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Submissions": {
+      "main": [
+        [
+          {
+            "node": "Append or update row in sheet1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append or update row in sheet1": {
+      "main": [
+        [
+          {
+            "node": "Loop Assignments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Append or update row in sheet2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append or update row in sheet2": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "versionId": "de9c684b-6c1e-49f2-8cb8-68b4e9804e26",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "0b253211a774e1082a8da3af3f8503fe5f5b71a128946778f1d9f44b46cdd105"
+  },
+  "id": "7zQfbspX91A741MC",
+  "tags": []
+}
